@@ -65,7 +65,6 @@ cd ..
 # the files if you want and won't need to
 # re-build it
 python setup.py build develop
-cd maskrcnn_benchmark/lib/
 
 unset INSTALL_DIR
 
