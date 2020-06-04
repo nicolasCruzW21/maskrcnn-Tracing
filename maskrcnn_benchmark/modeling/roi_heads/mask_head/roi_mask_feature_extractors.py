@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+import torch
 from torch import nn
 from torch.nn import functional as F
 
@@ -55,15 +56,33 @@ class MaskRCNNFPNFeatureExtractor(nn.Module):
             next_feature = layer_features
             self.blocks.append(layer_name)
         self.out_channels = layer_features
-
+    #@torch.jit.script_method
     def forward(self, x, proposals):
         x = self.pooler(x, proposals)
-
-        for layer_name in self.blocks:
-            x = F.relu(getattr(self, layer_name)(x))
-
+        #print(".............blocks.......",proposals)
+        #for layer_name in self.blocks:
+            #x = F.relu(getattr(self, layer_name)(x))
+        x = self.foward_with_null(x)
         return x
 
+    def foward_with_null(self,x):
+        if(x.numel()>0):
+            x = F.relu(getattr(self, 'mask_fcn1')(x))
+        else:
+            x = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
+        if(x.numel()>0):
+            x = F.relu(getattr(self, 'mask_fcn2')(x))
+        else:
+            x = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
+        if(x.numel()>0):
+            x = F.relu(getattr(self, 'mask_fcn3')(x))
+        else:
+            x = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
+        if(x.numel()>0):
+            x = F.relu(getattr(self, 'mask_fcn4')(x))
+        else:
+            x = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
+        return x
 
 def make_roi_mask_feature_extractor(cfg, in_channels):
     func = registry.ROI_MASK_FEATURE_EXTRACTORS[

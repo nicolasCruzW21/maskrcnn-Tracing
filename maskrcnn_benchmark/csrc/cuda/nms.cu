@@ -121,11 +121,14 @@ at::Tensor nms_cuda(const at::Tensor boxes, float nms_overlap_thresh) {
       }
     }
   }
-
-  THCudaFree(state, mask_dev);
-  // TODO improve this part
-  return std::get<0>(order_t.index({
+  auto test=std::get<0>(order_t.index({
                        keep.narrow(/*dim=*/0, /*start=*/0, /*length=*/num_to_keep).to(
                          order_t.device(), keep.scalar_type())
                      }).sort(0, false));
+  //AT_ASSERTM(!test.type().is_cuda(), "-------------------output is a CUDA tensor y uso cuda-----------------");
+  //AT_ASSERTM(!test.type().is_cuda(), "-------------------output is a CPU tensor y uso cuda-----------------");
+
+  THCudaFree(state, mask_dev);
+  // TODO improve this part
+  return test;
 }

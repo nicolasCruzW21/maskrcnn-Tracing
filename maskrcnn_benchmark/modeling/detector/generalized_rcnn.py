@@ -3,7 +3,6 @@
 Implements the Generalized R-CNN framework
 """
 
-import torch
 from torch import nn
 
 from maskrcnn_benchmark.structures.image_list import to_image_list
@@ -52,7 +51,7 @@ class GeneralizedRCNN(nn.Module):
             x, result, detector_losses = self.roi_heads(features, proposals, targets)
         else:
             # RPN-only models don't have roi_heads
-            x = features
+            # x = features
             result = proposals
             detector_losses = {}
 

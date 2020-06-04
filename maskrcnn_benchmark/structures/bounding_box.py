@@ -18,7 +18,9 @@ class BoxList(object):
 
     def __init__(self, bbox, image_size, mode="xyxy"):
         device = bbox.device if isinstance(bbox, torch.Tensor) else torch.device("cpu")
-        bbox = torch.as_tensor(bbox, dtype=torch.float32, device=device)
+        # only do as_tensor if isn't a "no-op", because it hurts JIT tracing
+        if not isinstance(bbox, torch.Tensor) or bbox.dtype != torch.float32 or bbox.device != device:
+            bbox = torch.as_tensor(bbox, dtype=torch.float32, device=device)
         if bbox.ndimension() != 2:
             raise ValueError(
                 "bbox should have 2 dimensions, got {}".format(bbox.ndimension())
@@ -35,6 +37,19 @@ class BoxList(object):
         self.size = image_size  # (image_width, image_height)
         self.mode = mode
         self.extra_fields = {}
+
+    # note: _jit_wrap/_jit_unwrap only work if the keys and the sizes don't change in between
+    def _jit_unwrap(self):
+        return (self.bbox,) + tuple(f for f in (self.get_field(field) for field in sorted(self.fields())) if isinstance(f, torch.Tensor))
+
+    def _jit_wrap(self, input_stream):
+        self.bbox = input_stream[0]
+        num_consumed = 1
+        for f in sorted(self.fields()):
+            if isinstance(self.extra_fields[f], torch.Tensor):
+                self.extra_fields[f] = ts[num_consumed]
+                num_consumed += 1
+        return self, input_stream[num_consumed:]
 
     def add_field(self, field, field_data):
         self.extra_fields[field] = field_data
@@ -178,8 +193,7 @@ class BoxList(object):
         cropped_ymax = (ymax - box[1]).clamp(min=0, max=h)
 
         # TODO should I filter empty boxes here?
-        if False:
-            is_empty = (cropped_xmin == cropped_xmax) | (cropped_ymin == cropped_ymax)
+        # is_empty = (cropped_xmin == cropped_xmax) | (cropped_ymin == cropped_ymax)
 
         cropped_box = torch.cat(
             (cropped_xmin, cropped_ymin, cropped_xmax, cropped_ymax), dim=-1
@@ -213,10 +227,10 @@ class BoxList(object):
 
     def clip_to_image(self, remove_empty=True):
         TO_REMOVE = 1
-        self.bbox[:, 0].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, 1].clamp_(min=0, max=self.size[1] - TO_REMOVE)
-        self.bbox[:, 2].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, 3].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        # we do not use clamp_ inplace for the benefit of JIT tracing
+        xs = self.bbox[:, 0::2].clamp(min=0, max=self.size[0] - TO_REMOVE)
+        ys = self.bbox[:, 1::2].clamp(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox = torch.stack([xs, ys], dim=2).view(-1, 4)
         if remove_empty:
             box = self.bbox
             keep = (box[:, 3] > box[:, 1]) & (box[:, 2] > box[:, 0])

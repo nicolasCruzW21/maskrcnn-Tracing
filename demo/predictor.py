@@ -9,6 +9,7 @@ from maskrcnn_benchmark.structures.image_list import to_image_list
 from maskrcnn_benchmark.modeling.roi_heads.mask_head.inference import Masker
 from maskrcnn_benchmark import layers as L
 from maskrcnn_benchmark.utils import cv2_util
+from maskrcnn_benchmark.structures.image_list import ImageList
 
 class Resize(object):
     def __init__(self, min_size, max_size):
@@ -195,7 +196,15 @@ class COCODemo(object):
             ]
         )
         return transform
-
+    def single_image_to_top_predictions(self, image):
+        result = self.model(ImageList(image, [(int(image.size(-2)), int(image.size(-1)))]))[0]
+        scores = result.get_field("scores")
+        keep = (scores >= self.confidence_threshold)
+        result = (result.bbox[keep],
+                  result.get_field("labels")[keep],
+                  result.get_field("mask")[keep],
+                  scores[keep])
+        return result
     def run_on_opencv_image(self, image):
         """
         Arguments:

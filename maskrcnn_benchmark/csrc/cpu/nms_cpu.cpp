@@ -10,10 +10,6 @@ at::Tensor nms_cpu_kernel(const at::Tensor& dets,
   AT_ASSERTM(!scores.type().is_cuda(), "scores must be a CPU tensor");
   AT_ASSERTM(dets.type() == scores.type(), "dets should have the same type as scores");
 
-  if (dets.numel() == 0) {
-    return at::empty({0}, dets.options().dtype(at::kLong).device(at::kCPU));
-  }
-
   auto x1_t = dets.select(1, 0).contiguous();
   auto y1_t = dets.select(1, 1).contiguous();
   auto x2_t = dets.select(1, 2).contiguous();
@@ -71,5 +67,8 @@ at::Tensor nms_cpu(const at::Tensor& dets,
   AT_DISPATCH_FLOATING_TYPES(dets.type(), "nms", [&] {
     result = nms_cpu_kernel<scalar_t>(dets, scores, threshold);
   });
+
+  //AT_ASSERTM(!result.type().is_cuda(), "-------------------output is a CUDA tensor y uso CPU-----------------");
+  //AT_ASSERTM(result.type().is_cuda(), "-------------------output is a CPU tensor y uso CPU-----------------");
   return result;
 }

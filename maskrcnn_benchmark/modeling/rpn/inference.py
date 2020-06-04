@@ -6,16 +6,16 @@ from maskrcnn_benchmark.structures.bounding_box import BoxList
 from maskrcnn_benchmark.structures.boxlist_ops import cat_boxlist
 from maskrcnn_benchmark.structures.boxlist_ops import boxlist_nms
 from maskrcnn_benchmark.structures.boxlist_ops import remove_small_boxes
-
+from torch import nn
 from ..utils import cat
 from .utils import permute_and_flatten
 
-class RPNPostProcessor(torch.nn.Module):
+class RPNPostProcessor(nn.Module):
     """
     Performs post-processing on the outputs of the RPN boxes, before feeding the
     proposals to the heads
     """
-
+    __constants__ = ['pre_nms_top_n','fpn_post_nms_top_n']
     def __init__(
         self,
         pre_nms_top_n,
@@ -73,6 +73,47 @@ class RPNPostProcessor(torch.nn.Module):
 
         return proposals
 
+
+    #def permute_and_flatten(layer, N, A, C, H, W):
+        #layer = layer.view(N, -1, C, H, W)
+        #layer = layer.permute(0, 3, 4, 1, 2)
+        #layer = layer.reshape(N, -1, C)
+        #return layer
+
+    #@torch.jit.script_method
+    def objectness_top_k(self,objectness,box_regression):
+        # type: (Tensor,Tensor) -> Tuple[Tensor, Tensor, Tensor]
+        device = objectness.device
+        N, A, H, W = objectness.shape
+        # put in the same format as anchors
+
+        #objectness = permute_and_flatten(objectness, Tensor(N), A, 1, H, W).view(N, -1)
+        
+        objectness = objectness.view(N, -1, 1, H, W)
+        objectness = objectness.permute(0, 3, 4, 1, 2)
+        objectness = objectness.reshape(N, -1, 1)
+        objectness=objectness.view(N, -1)
+
+
+        objectness = objectness.sigmoid()
+        #box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
+
+        box_regression = box_regression.view(N, -1, 4, H, W)
+        box_regression = box_regression.permute(0, 3, 4, 1, 2)
+        box_regression = box_regression.reshape(N, -1, 4)
+
+
+
+
+        num_anchors = A * H * W
+
+        if(self.pre_nms_top_n<num_anchors):
+            pre_nms_top_n=self.pre_nms_top_n
+        else:
+            pre_nms_top_n=num_anchors
+        objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
+        return objectness, topk_idx, box_regression
+
     def forward_for_single_feature_map(self, anchors, objectness, box_regression):
         """
         Arguments:
@@ -80,19 +121,11 @@ class RPNPostProcessor(torch.nn.Module):
             objectness: tensor of size N, A, H, W
             box_regression: tensor of size N, A * 4, H, W
         """
+
         device = objectness.device
         N, A, H, W = objectness.shape
 
-        # put in the same format as anchors
-        objectness = permute_and_flatten(objectness, N, A, 1, H, W).view(N, -1)
-        objectness = objectness.sigmoid()
-
-        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
-
-        num_anchors = A * H * W
-
-        pre_nms_top_n = min(self.pre_nms_top_n, num_anchors)
-        objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
+        objectness,topk_idx, box_regression = self.objectness_top_k(objectness,box_regression)
 
         batch_idx = torch.arange(N, device=device)[:, None]
         box_regression = box_regression[batch_idx, topk_idx]
@@ -100,7 +133,6 @@ class RPNPostProcessor(torch.nn.Module):
         image_shapes = [box.size for box in anchors]
         concat_anchors = torch.cat([a.bbox for a in anchors], dim=0)
         concat_anchors = concat_anchors.reshape(N, -1, 4)[batch_idx, topk_idx]
-
         proposals = self.box_coder.decode(
             box_regression.view(-1, 4), concat_anchors.view(-1, 4)
         )
@@ -151,6 +183,21 @@ class RPNPostProcessor(torch.nn.Module):
 
         return boxlists
 
+
+
+    #@torch.jit.script_method
+    def jit_inds_sorted(self, objectness):
+
+        # Limit to max_per_image detections **over all classes**
+        if objectness.size(0) > self.fpn_post_nms_top_n:
+            post_nms_top_n = self.fpn_post_nms_top_n
+        else:
+            post_nms_top_n = objectness.size(0)
+        _, inds_sorted = torch.topk(
+            objectness, post_nms_top_n, dim=0, sorted=True
+        )
+        return inds_sorted
+
     def select_over_all_levels(self, boxlists):
         num_images = len(boxlists)
         # different behavior during training and during testing:
@@ -173,10 +220,23 @@ class RPNPostProcessor(torch.nn.Module):
         else:
             for i in range(num_images):
                 objectness = boxlists[i].get_field("objectness")
-                post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
-                _, inds_sorted = torch.topk(
-                    objectness, post_nms_top_n, dim=0, sorted=True
-                )
+
+                #aux=torch.tensor(self.fpn_post_nms_top_n)
+                #aux2=torch.tensor(objectness.size(0))
+                #post_nms_top_n = torch.min(aux, aux2)
+
+
+                #if(self.fpn_post_nms_top_n<objectness.size(0)):
+                    #post_nms_top_n = self.fpn_post_nms_top_n
+                #else:
+                    #post_nms_top_n = objectness.size(0)
+                #post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
+                #print("post_nms_top_n",post_nms_top_n)
+
+                #_, inds_sorted = torch.topk(
+                    #objectness, post_nms_top_n, dim=0, sorted=True
+                #)
+                inds_sorted=self.jit_inds_sorted(objectness)
                 boxlists[i] = boxlists[i][inds_sorted]
         return boxlists
 

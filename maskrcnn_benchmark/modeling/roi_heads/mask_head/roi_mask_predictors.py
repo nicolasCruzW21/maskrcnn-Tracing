@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+import torch
 from torch import nn
 from torch.nn import functional as F
 
@@ -22,13 +23,20 @@ class MaskRCNNC4Predictor(nn.Module):
             if "bias" in name:
                 nn.init.constant_(param, 0)
             elif "weight" in name:
-                # Caffe2 implementation uses MSRAFill, which in fact
                 # corresponds to kaiming_normal_ in PyTorch
                 nn.init.kaiming_normal_(param, mode="fan_out", nonlinearity="relu")
 
+    #@torch.jit.script_method
     def forward(self, x):
-        x = F.relu(self.conv5_mask(x))
-        return self.mask_fcn_logits(x)
+        if(x.numel()>0):
+            x = F.relu(self.conv5_mask(x))
+        else:
+            x = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
+        if(x.numel()>0):
+            x=self.mask_fcn_logits(x)
+        else:
+            x = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
+        return x
 
 
 @registry.ROI_MASK_PREDICTOR.register("MaskRCNNConv1x1Predictor")
@@ -38,7 +46,7 @@ class MaskRCNNConv1x1Predictor(nn.Module):
         num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
         num_inputs = in_channels
 
-        self.mask_fcn_logits = Conv2d(num_inputs, num_classes, 1, 1, 0)
+        self.mask_fcn_logits = torch.jit.trace(Conv2d(num_inputs, num_classes, 1, 1, 0),torch.rand(1, 256, 16, 16))
 
         for name, param in self.named_parameters():
             if "bias" in name:
@@ -47,10 +55,13 @@ class MaskRCNNConv1x1Predictor(nn.Module):
                 # Caffe2 implementation uses MSRAFill, which in fact
                 # corresponds to kaiming_normal_ in PyTorch
                 nn.init.kaiming_normal_(param, mode="fan_out", nonlinearity="relu")
-
+    @torch.jit.script_method
     def forward(self, x):
-        return self.mask_fcn_logits(x)
-
+        if(x.numel()>0):
+            x=self.mask_fcn_logits(x)
+        else:
+            x = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
+        return x
 
 def make_roi_mask_predictor(cfg, in_channels):
     func = registry.ROI_MASK_PREDICTOR[cfg.MODEL.ROI_MASK_HEAD.PREDICTOR]
