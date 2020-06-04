@@ -43,24 +43,10 @@ class PostProcessor(nn.Module):
         self.bbox_aug_enabled = bbox_aug_enabled
 
 
-    #@torch.jit.script_method
+    @torch.jit.export
     def detections_to_keep(self, scores):
-        number_of_detections = scores.size(0)
-        #print(self.detections_per_img)
-        # Limit to max_per_image detections **over all classes**
 
-        if number_of_detections > self.detections_per_img > 0:
-            number_of_detections = scores.size(0)
-            k=number_of_detections - (self.detections_per_img - 1)
-            #print("k", k)
-            #print("score size:", number_of_detections)
-            val, _ = torch.topk(scores,k, largest = False, dim = -1)
-            image_thresh = val[-1:]
-            #print("image tresh: ",image_thresh)
-            keep = scores >= image_thresh  # remove for jit compat... .item()
-            #keep = torch.nonzero(keep).squeeze(1)
-        else:
-            keep = torch.ones(scores.shape, device=scores.device, dtype=torch.uint8)
+        keep = torch.ones(scores.shape, device=scores.device, dtype=torch.uint8)
         return keep
 
 
@@ -138,7 +124,7 @@ class PostProcessor(nn.Module):
         boxlist = BoxList(boxes, image_shape, mode="xyxy")
         boxlist.add_field("scores", scores)
         return boxlist
-
+    @torch.jit.export
     def filter_results(self, boxlist, num_classes):
         """Returns bounding-box detection results by thresholding on scores and
         applying non-maximum suppression (NMS).
@@ -171,6 +157,7 @@ class PostProcessor(nn.Module):
 
         result = cat_boxlist(result)
         scores = result.get_field("scores")
+        #print("---------------------------DEBUG1-------------------------)
         keep = self.detections_to_keep(scores)
         result = result[keep]
         return result

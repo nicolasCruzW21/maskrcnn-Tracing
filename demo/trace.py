@@ -35,6 +35,12 @@ def processImage(name,size, model):
     ImageFinal = image.unsqueeze(0).to(model.device)
     return ImageFinal
 
+def processImageCPU(name,size, model):
+    image2 =Image.open(name).convert("RGB")
+    image2 = image2.resize((size, size), Image.BILINEAR)
+    image2 = torch.from_numpy(numpy.array(image2)[:, :, [2, 1, 0]])
+    return image2
+
 def my_paste_mask(mask, bbox, height, width, threshold=0.5, padding=1, contour=False, rectangle=False):
     # type: (Tensor, Tensor, int, int, float, int, bool, bool) -> Tensor
     padded_mask = torch.constant_pad_nd(mask, (padding, padding, padding, padding))
@@ -143,6 +149,7 @@ def main():
 
     start_time = time.time()
     image = processImage("test.jpg",800,coco_demo)
+    image2 = processImageCPU("test.jpg",800,coco_demo)
     coco_demo.single_image_to_top_predictions(image)
 
     for p in coco_demo.model.parameters():
@@ -154,11 +161,23 @@ def main():
 
     print("done tracing")
 
-    image2 =Image.open("test.jpg").convert("RGB")
-    image2 = image2.resize((800, 800), Image.BILINEAR)
-    image2 = torch.from_numpy(numpy.array(image2)[:, :, [2, 1, 0]])
+    print("testing first image:")
+
 
     loaded = torch.jit.load("traced.pt")
+    boxes, labels, masks, scores = loaded(image)
+    palette=torch.tensor([3, 32767, 2097151])
+    input_model=image2.cpu().squeeze(0), boxes.to(coco_demo.cpu_device), labels.to(coco_demo.cpu_device), masks.to(coco_demo.cpu_device), scores.to(coco_demo.cpu_device), palette
+    result_image1 = combine_masks_tuple(input_model)
+    pyplot.imshow(result_image1[:, :, [2, 1, 0]])
+    pyplot.show()
+
+    print("testing second image:")
+
+
+    image = processImage("test2.jpg",800,coco_demo)
+    image2 = processImageCPU("test2.jpg",800,coco_demo)
+
     boxes, labels, masks, scores = loaded(image)
     palette=torch.tensor([3, 32767, 2097151])
     input_model=image2.cpu().squeeze(0), boxes.to(coco_demo.cpu_device), labels.to(coco_demo.cpu_device), masks.to(coco_demo.cpu_device), scores.to(coco_demo.cpu_device), palette
