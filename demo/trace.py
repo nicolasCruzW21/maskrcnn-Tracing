@@ -155,8 +155,8 @@ def main():
     for p in coco_demo.model.parameters():
         p.requires_grad_(False)
     coco_demo.model = coco_demo.model.eval()
-
-    traced_model = torch.jit.trace(coco_demo.single_image_to_top_predictions, image,check_trace=False)
+    with @torch.jit.optimized_execution(False):
+        traced_model = torch.jit.trace(coco_demo.single_image_to_top_predictions, image, check_trace=False)
     traced_model.save('traced.pt')
 
     print("done tracing")
